@@ -7,6 +7,8 @@
 // @include      https://fclm-portal.amazon.com/reports/ppaTimeOnTask*
 // @icon         https://i.pinimg.com/originals/29/f6/41/29f641b507ccb60bb7a62a830b988736.jpg
 // @grant        GM_xmlhttpRequest
+// @updateURL    https://raw.githubusercontent.com/elshafeo/FCLMComplianceTracker/main/FCLMComplianceTracker.js
+// @downloadURL  https://raw.githubusercontent.com/elshafeo/FCLMComplianceTracker/main/FCLMComplianceTracker.js
 // ==/UserScript==
 /*
    FCLM Compliance Tracker - Documentation
