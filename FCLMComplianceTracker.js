@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         FCLMComplianceTracker
-// @version      0.9f.20240814.1750
+// @version      0.9g.20240826.0227
 // @description  Adds colors to ppaTimeOnTask to show Job Rotation Compliance, checks for 5S/Non Productive, and displays the Direct Function, Previous Task, and Current Task.
 // @author       @elshafeo & @harefmak DBV1
 // @station      DBV1
@@ -46,6 +46,10 @@
    - If the script freezes or doesn't apply colors correctly, try refreshing the page or reducing the number of rows processed.
 
    Version History:
+      - **0.9g.20240826.0227:**
+     - Added automatic update functionality via GitHub hosting.
+     - Removed task grouping logic to resolve color conflict issues.
+     - Added background task running capabilities (beta).
    - **0.9f.20240814.1750:**
      - Adjusted logic for group handling.
      - Improved multi-task detection.
