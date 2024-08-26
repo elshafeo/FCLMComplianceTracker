@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         FCLMComplianceTracker
-// @version      0.9g.20240826.0327
+// @version      0.9h.20240826.0550
 // @updateURL    https://raw.githubusercontent.com/elshafeo/FCLMComplianceTracker/main/FCLMComplianceTracker.js
 // @downloadURL  https://raw.githubusercontent.com/elshafeo/FCLMComplianceTracker/main/FCLMComplianceTracker.js
 // @description  Adds colors to ppaTimeOnTask to show Job Rotation Compliance, checks for 5S/Non Productive, and displays the Direct Function, Previous Task, and Current Task.
@@ -46,7 +46,13 @@
    - If the script freezes or doesn't apply colors correctly, try refreshing the page or reducing the number of rows processed.
 
    Version History:
-      - **0.9g.20240826.0227:**
+   - **0.9h.20240826.0550:**
+     - Grouped "Induct Line Loader", "Pusher", and "Inbound Dock W/S" under "Inbound" to simplify task identification.
+     - Grouped "ADTA Container Building" and "Container Building" under "Stow" to unify related tasks.
+     - Added a toggle for Dark Mode to enhance visual comfort during nighttime or low-light usage.
+     - Introduced a Custom Threshold feature, allowing users to set their preferred task duration threshold instead of the default 210 minutes.
+     - Improved UI layout for better accessibility.
+   - **0.9g.20240823.0227:**
      - Added automatic update functionality via GitHub hosting.
      - Removed task grouping logic to resolve color conflict issues.
      - Added background task running capabilities (beta).
@@ -102,14 +108,101 @@ const jobRotationTasks = [
     "ADTA Container Building"
 ];
 
-const tasksExcludedFromRed = ["Yard Marshal", "Sort Problem Solve"];
-const greenOverrideTasks = ["Non-Core Support", "UTR OPS Supervisor / SA", "OTR Supervisor / Shift Assistant", "OTR Support", "UTR", "CS DSL", "HR"];
-const taskGroups = {
-    "Induct Line Loader": "Group1",
-    "Pusher": "Group1",
-    "Inbound Dock W/S": "Group1",
-    // Remove Group2 as requested
+const tasksExcludedFromRed = ["Yard Marshall", "Sort Problem Solve"];
+const greenOverrideTasks = ["Non-Core Support", "UTR OPS Supervisor / SA", "OTR Supervisor / Shift Assistant", "OTR Support", "UTR", "CS DSL", "HR", "CS DSL"];
+
+// Group tasks under "Inbound" and "Stow"
+const taskGrouping = {
+    "Induct Line Loader": "Inbound",
+    "Pusher": "Inbound",
+    "Inbound Dock W/S": "Inbound",
+    "ADTA Container Building": "Stow",
+    "Container Building": "Stow"
 };
+
+// Add CSS for dark mode
+const style = document.createElement('style');
+style.innerHTML = `
+.dark-mode {
+    background-color: #121212;
+    color: #ffffff;
+}
+
+.dark-mode th, .dark-mode td {
+    border-color: #444;
+}
+
+.dark-mode button {
+    background-color: #333;
+    color: #ffffff;
+}
+
+#controlPanel {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    z-index: 1000;
+    padding: 10px;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+}
+
+#controlPanel button {
+    margin-bottom: 10px;
+}
+`;
+document.head.appendChild(style);
+
+// Function to toggle dark mode
+function toggleDarkMode() {
+    const darkModeEnabled = document.body.classList.toggle('dark-mode');
+    localStorage.setItem('darkMode', darkModeEnabled ? 'enabled' : 'disabled');
+}
+
+// Function to apply dark mode on load
+function applyDarkMode() {
+    if (localStorage.getItem('darkMode') === 'enabled') {
+        document.body.classList.add('dark-mode');
+    }
+}
+
+// Function to set custom threshold
+function setCustomThreshold() {
+    const newThreshold = prompt("Enter your custom threshold in minutes:", localStorage.getItem('taskThreshold') || 210);
+    if (newThreshold && !isNaN(newThreshold)) {
+        localStorage.setItem('taskThreshold', parseInt(newThreshold));
+    }
+}
+
+// Function to get custom threshold or default to 210
+function getTaskThreshold() {
+    return parseInt(localStorage.getItem('taskThreshold')) || 210; // Default to 210 if not set
+}
+
+// Apply dark mode on load
+applyDarkMode();
+
+// Add a container for the buttons at the bottom of the page
+const controlPanel = document.createElement('div');
+controlPanel.id = "controlPanel";
+
+// Create dark mode button
+const darkModeButton = document.createElement('button');
+darkModeButton.innerText = 'Toggle Dark Mode';
+darkModeButton.onclick = toggleDarkMode;
+controlPanel.appendChild(darkModeButton);
+
+// Create custom threshold button
+const thresholdButton = document.createElement('button');
+thresholdButton.innerText = 'Set Custom Threshold';
+thresholdButton.onclick = setCustomThreshold;
+controlPanel.appendChild(thresholdButton);
+
+// Append the control panel to the body
+document.body.appendChild(controlPanel);
 
 (function() {
     'use strict';
@@ -155,120 +248,6 @@ function fetchPreviousDayTask(rows, index) {
         onload(response) {
             const doc = new DOMParser().parseFromString(response.responseText, "text/html");
 
-            let previousDayTasks = [];
-            let taskSegments = [];
-            let previousTasksOver210 = [];
-
-            try {
-                taskSegments = Array.from(doc.getElementsByClassName("function-seg")).slice(4);
-            } catch (error) {
-                console.error('Error parsing task segments:', error);
-            }
-
-            taskSegments.forEach(segment => {
-                const taskName = segment.children[0].innerText.split("\t", 4)[3].split("♦", 1)[0];
-                const taskDuration = segment.children[3].innerText;
-                let taskAdded = false;
-                for (let j = 0; j < previousDayTasks.length; j++) {
-                    if (taskName === previousDayTasks[j].taskName) {
-                        const mins = parseInt(previousDayTasks[j].taskDuration.split(":", 1)[0]) + parseInt(taskDuration.split(":", 1)[0]) + Math.floor((parseInt(previousDayTasks[j].taskDuration.split(":", 2)[1]) + parseInt(taskDuration.split(":", 2)[1])) / 60);
-                        const secs = (parseInt(previousDayTasks[j].taskDuration.split(":", 2)[1]) + parseInt(taskDuration.split(":", 2)[1])) % 60;
-                        previousDayTasks[j].taskDuration = `${mins}:${secs}`;
-                        taskAdded = true;
-                        break;
-                    }
-                }
-                if (!taskAdded) {
-                    previousDayTasks.push({ taskName, taskDuration });
-                }
-            });
-
-            previousDayTasks.forEach(task => {
-                if (parseInt(task.taskDuration.split(":", 1)[0]) >= 210) {
-                    previousTasksOver210.push(task.taskName);
-                }
-            });
-
-            let prevTaskCell = document.createElement('td');
-            if (previousTasksOver210.length > 0) {
-                prevTaskCell.innerText = previousTasksOver210.join(", ");
-                prevTaskCell.style.color = previousTasksOver210.length > 1 ? "red" : ""; // Set font color to red if there are multiple tasks
-            } else {
-                prevTaskCell.innerText = "None";
-            }
-            rows[index].value.appendChild(prevTaskCell);
-
-            fetchCurrentDayTask(rows, index, previousTasksOver210);
-        },
-        onerror(e) {
-            console.error(e);
-        }
-    });
-}
-
-function fetchPreviousDayTask(rows, index) {
-    if (index >= rows.length) return;
-
-    GM_xmlhttpRequest({
-        method: "GET",
-        url: `https://fclm-portal.amazon.com/employee/ppaTimeDetails?employeeId=${rows[index].key}&startTime=${previousDay}T00%3a00%3a00%2b0200&endTime=${today}T00%3a00%3a00%2b0200`,
-        responseType: "document",
-        headers: {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Content-Type": "text/html;charset=UTF-8"
-        },
-        onload(response) {
-            const doc = new DOMParser().parseFromString(response.responseText, "text/html");
-
-            let previousDayTaskDurations = {};
-            let taskSegments = [];
-
-            try {
-                taskSegments = Array.from(doc.getElementsByClassName("function-seg")).slice(4);
-            } catch (error) {
-                console.error('Error parsing task segments:', error);
-            }
-
-            taskSegments.forEach(segment => {
-                const taskName = segment.children[0].innerText.split("\t", 4)[3].split("♦", 1)[0];
-                const duration = segment.children[3].innerText;
-                const mins = parseInt(duration.split(":", 1)[0]);
-
-                if (!previousDayTaskDurations[taskName]) {
-                    previousDayTaskDurations[taskName] = mins;
-                } else {
-                    previousDayTaskDurations[taskName] += mins;
-                }
-            });
-
-            let prevTaskCell = document.createElement('td');
-            let tasksOver210 = Object.keys(previousDayTaskDurations).filter(task => previousDayTaskDurations[task] >= 210);
-            prevTaskCell.innerText = tasksOver210.join(", ");
-            prevTaskCell.style.color = tasksOver210.length > 1 ? "red" : ""; // Set font color to red if there are multiple tasks
-            rows[index].value.appendChild(prevTaskCell);
-
-            fetchCurrentDayTask(rows, index, previousDayTaskDurations);
-        },
-        onerror(e) {
-            console.error(e);
-        }
-    });
-}
-
-function fetchPreviousDayTask(rows, index) {
-    if (index >= rows.length) return;
-
-    GM_xmlhttpRequest({
-        method: "GET",
-        url: `https://fclm-portal.amazon.com/employee/ppaTimeDetails?employeeId=${rows[index].key}&startTime=${previousDay}T00%3a00%3a00%2b0200&endTime=${today}T00%3a00%3a00%2b0200`,
-        responseType: "document",
-        headers: {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Content-Type": "text/html;charset=UTF-8"
-        },
-        onload(response) {
-            const doc = new DOMParser().parseFromString(response.responseText, "text/html");
-
             let previousDayTaskDurations = {};
             let taskSegments = [];
 
@@ -284,7 +263,13 @@ function fetchPreviousDayTask(rows, index) {
 
                 if (taskElement && durationElement) {
                     const taskNameParts = taskElement.innerText.split("\t", 4);
-                    const taskName = taskNameParts.length > 3 ? taskNameParts[3].split("♦", 1)[0] : "Unknown Task";
+                    let taskName = taskNameParts.length > 3 ? taskNameParts[3].split("♦", 1)[0] : "Unknown Task";
+
+                    // Group tasks as "Inbound" or "Stow"
+                    if (taskGrouping[taskName]) {
+                        taskName = taskGrouping[taskName];
+                    }
+
                     const duration = durationElement.innerText;
                     const mins = parseInt(duration.split(":", 1)[0]);
 
@@ -297,62 +282,7 @@ function fetchPreviousDayTask(rows, index) {
             });
 
             let prevTaskCell = document.createElement('td');
-            let tasksOver210 = Object.keys(previousDayTaskDurations).filter(task => previousDayTaskDurations[task] >= 210);
-            prevTaskCell.innerText = tasksOver210.join(", ");
-            prevTaskCell.style.color = tasksOver210.length > 1 ? "red" : ""; // Set font color to red if there are multiple tasks
-            rows[index].value.appendChild(prevTaskCell);
-
-            fetchCurrentDayTask(rows, index, previousDayTaskDurations);
-        },
-        onerror(e) {
-            console.error(e);
-        }
-    });
-}
-
-function fetchPreviousDayTask(rows, index) {
-    if (index >= rows.length) return;
-
-    GM_xmlhttpRequest({
-        method: "GET",
-        url: `https://fclm-portal.amazon.com/employee/ppaTimeDetails?employeeId=${rows[index].key}&startTime=${previousDay}T00%3a00%3a00%2b0200&endTime=${today}T00%3a00%3a00%2b0200`,
-        responseType: "document",
-        headers: {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Content-Type": "text/html;charset=UTF-8"
-        },
-        onload(response) {
-            const doc = new DOMParser().parseFromString(response.responseText, "text/html");
-
-            let previousDayTaskDurations = {};
-            let taskSegments = [];
-
-            try {
-                taskSegments = Array.from(doc.getElementsByClassName("function-seg")).slice(4);
-            } catch (error) {
-                console.error('Error parsing task segments:', error);
-            }
-
-            taskSegments.forEach(segment => {
-                const taskElement = segment.children[0];
-                const durationElement = segment.children[3];
-
-                if (taskElement && durationElement) {
-                    const taskNameParts = taskElement.innerText.split("\t", 4);
-                    const taskName = taskNameParts.length > 3 ? taskNameParts[3].split("♦", 1)[0] : "Unknown Task";
-                    const duration = durationElement.innerText;
-                    const mins = parseInt(duration.split(":", 1)[0]);
-
-                    if (!previousDayTaskDurations[taskName]) {
-                        previousDayTaskDurations[taskName] = mins;
-                    } else {
-                        previousDayTaskDurations[taskName] += mins;
-                    }
-                }
-            });
-
-            let prevTaskCell = document.createElement('td');
-            let tasksOver210 = Object.keys(previousDayTaskDurations).filter(task => previousDayTaskDurations[task] >= 210);
+            let tasksOver210 = Object.keys(previousDayTaskDurations).filter(task => previousDayTaskDurations[task] >= getTaskThreshold());
             prevTaskCell.innerText = tasksOver210.join(", ");
             prevTaskCell.style.color = tasksOver210.length > 1 ? "red" : ""; // Set font color to red if there are multiple tasks
             rows[index].value.appendChild(prevTaskCell);
@@ -392,7 +322,13 @@ function fetchCurrentDayTask(rows, index, previousDayTaskDurations) {
 
                         if (taskElement && durationElement) {
                             const taskNameParts = taskElement.innerText.split("\t", 4);
-                            const taskName = taskNameParts.length > 3 ? taskNameParts[3].split("♦", 1)[0] : "Unknown Task";
+                            let taskName = taskNameParts.length > 3 ? taskNameParts[3].split("♦", 1)[0] : "Unknown Task";
+
+                            // Group tasks as "Inbound" or "Stow"
+                            if (taskGrouping[taskName]) {
+                                taskName = taskGrouping[taskName];
+                            }
+
                             const duration = durationElement.innerText;
                             const mins = parseInt(duration.split(":", 1)[0]);
 
@@ -407,7 +343,7 @@ function fetchCurrentDayTask(rows, index, previousDayTaskDurations) {
                         }
                     });
 
-                    currentTaskOver210 = currentDayTaskDurations[currentTask] >= 210;
+                    currentTaskOver210 = currentDayTaskDurations[currentTask] >= getTaskThreshold();
                 }
             } catch (error) {
                 console.error('Error parsing current task:', error);
@@ -424,10 +360,10 @@ function fetchCurrentDayTask(rows, index, previousDayTaskDurations) {
                 color = "#78fa98"; // Green override for specified tasks
             } else if (currentTask === "5S / Non Productive") {
                 color = "#00FFFF"; // Cyan for 5S / Non Productive
-            } else if (previousDayTaskDurations[currentTask] && currentTaskOver210 && previousDayTaskDurations[currentTask] >= 210 && !tasksExcludedFromRed.includes(currentTask)) {
-                color = "#f77481"; // Red if both current and previous day tasks exceed 210 minutes
-            } else if (previousDayTaskDurations[currentTask] && previousDayTaskDurations[currentTask] >= 210) {
-                color = "#ffff99"; // Yellow if the previous day's task exceeded 210 minutes but doesn't meet red criteria
+            } else if (previousDayTaskDurations[currentTask] && currentTaskOver210 && previousDayTaskDurations[currentTask] >= getTaskThreshold() && !tasksExcludedFromRed.includes(currentTask)) {
+                color = "#f77481"; // Red if both current and previous day tasks exceed threshold
+            } else if (previousDayTaskDurations[currentTask] && previousDayTaskDurations[currentTask] >= getTaskThreshold()) {
+                color = "#ffff99"; // Yellow if the previous day's task exceeded threshold but doesn't meet red criteria
             }
 
             rows[index].value.style.backgroundColor = color;
